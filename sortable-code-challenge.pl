@@ -17,7 +17,7 @@ use JSON;
 #   2. use cpan to install JSON parser
 #   3. chmod 500 ./start.pl
 #   4. run with 
-#    ./start.pl <PRODUCT_FILE_NAME> <LISTING_FILE_NAME> <OUTPUT_FILENAME> 
+#      ./sortable-code-challenge.pl <PRODUCT_FILE_NAME> <LISTING_FILE_NAME> <OUTPUT_FILENAME> 
 # --------------------------------------------
 
 usage();
@@ -30,8 +30,7 @@ my $REMOVE_DUPS = 0; # set to 1 if you want script to detect and remove duplicat
 my $productsref = load_products($ARGV[0]);
 my $pricesref = load_prices($ARGV[1]);
 
-my @price_product_map = (); # Example $price_product_map[3] = [ 25, 88 ]; # means price listing #25 and #88 belong to product list line # 3.
-# The '3' is line # 3 in product file, 25 and 88 are line numbers in listings file.
+my %price_product_map = (); 
 
 if($#{$pricesref} == 0 ) 
 {
@@ -49,16 +48,10 @@ if(!open(O, ">$outputfile"))
 my $outputjason = JSON->new();
 my $jason_perl_object;
 
-foreach my $product (0..$#{$productsref})
+foreach my $product (keys %price_product_map)
 {
-	my $price_list_ref = $price_product_map[$product];
-	
-	if($price_list_ref)
-	{
-		# if we have one or more price listings for this product...
-		$jason_perl_object = { "product_name" => $productsref->[$product][1], "listings" => $price_list_ref };
-		print O $outputjason->encode($jason_perl_object)."\n";
-	}	
+	$jason_perl_object = { "product_name" => $product, "listings" => $outputjason->encode($price_product_map{$product}) };
+	print O $outputjason->encode($jason_perl_object)."\n";
 }
 
 close(O);
@@ -79,66 +72,44 @@ sub process
         # Given this price listing (current one given by $list_entry), let's attempt to locate this
         # in the product list
 	$found = 0;
+       
+	my $product_ref_obj = $productsref->{$price_entry_manufacturer};
+    
+	foreach my $price_list_item_ref (@{$product_ref_obj})
+	{ 
+        	# PRODUCT_NAME [0] 
+        	# MODEL        [1]
+        	# FAMILY       [2] 
 
-        foreach my $product_index (0..$#{$productsref})
-        {    
-            # 'MANUFACTURER' == [0] 
-            # 'PRODUCT_NAME' == [1] 
-            # 'MODEL'     == [2]
-            # 'FAMILY'      == [3] 
-          
-	    # requirements specified false negatives were much more prefered than false positives,
-            # thus, we'll demand that all 3 match -- manufacturer, model and family.
-		
-	    # compare - case insenstive - manufacturer
-	    # 6888 found when case IN-sensitve match on manufacturer
- 	    # when same match was done with case sensitive, matching dropped to 5789.
+		my $product_name = $price_list_item_ref->[0];
+		my $product_model = $price_list_item_ref->[1];
+		my $product_family = $price_list_item_ref->[2];
 
-	    if($price_entry_manufacturer !~ m/^$productsref->[$product_index][0]$/i)
-            {
-                # manufacturer doesn't match, avoid false positives, try next product list
-                next;
-            }
+		# case-insensitive model match...
+                if($price_entry_title !~ m/(^|\s)$product_model($|\s)/i)
+                {
+                	# no, the current price list item's title does not contain the model mentioned
+                	# the currently looked at product
+                	next;
+            	}
 
-	    # below - the ^|\s - means must be delimited by start of string or space
-	    # $|\s - means delimited by either end of string or space	
+                # compare - case insenstive - family
 
-	    # [2] = MODEL                    
-	    # compare - case insenstive - model
+                if($price_entry_title !~ m/(^|\s)$product_family($|\s)/i)
+                {
+                	# no, it doesn't, move on
+                	next;
+                }
+	
+	       push @{$price_product_map{$product_name}}, $pricesref->[$listing_index];
+	
+               # 'last out' of loop - we found a match between this price list line and products file, no need to keep looking,
+               # since we limit the number of matches a price list entry can have to 1 product only.
 
-            if($price_entry_title !~ m/(^|\s)$productsref->[$product_index][2]($|\s)/i)
-            {
-                # no, the current price list item's title does not contain the model mentioned
-                # the currently looked at product    
-                next;
-            }         
-                
-	    # [3] = FAMILY
-	    # compare - case insenstive - family
-
-            if($price_entry_title !~ m/(^|\s)$productsref->[$product_index][3]($|\s)/i)
-            {  
-                # no, it doesn't, move on
-                next;
-            }
-       	 
-            # found match 
-
-	    push @{$price_product_map[$product_index]}, $pricesref->[$listing_index];
-
-	    # 'last out' of loop - we found a match between this price list line and products file, no need to keep looking,
-            # since we limit the number of matches a price list entry can have to 1 product only.
-	    $num_found++;
-	    last;
-        }
-
-	if(!$found)
-	{
-		#print "not found: $price_entry_manufacturer / $price_entry_title\n";
-	}
-    }
-
-    print 'found '.$num_found."\n";
+               last;
+	
+         } 
+     }
 }
 
 sub load_prices
@@ -191,9 +162,9 @@ sub load_products
     my ($file ) = @_;
 
     my %dups = (); # for duplication removal
-    my @product_specs = ();
+    my %product_specs = ();
     my $json = JSON->new();
-
+    
     # From filename passed in, load the JSON object string
 
     if(!open(F, "<$file"))
@@ -226,9 +197,8 @@ sub load_products
 
         my $obj = decode_json($line);
 
-        push @product_specs,
+        push @{$product_specs{normalize($obj->{'manufacturer'})}},
                     [ 
-                        normalize($obj->{'manufacturer'}),
                         normalize($obj->{'product_name'}),
                         normalize($obj->{'model'}),
                         normalize($obj->{'family'})
@@ -236,7 +206,7 @@ sub load_products
     }
 
     close(F);
-    return \@product_specs;    
+    return \%product_specs;    
 }
 
 sub usage
