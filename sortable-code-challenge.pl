@@ -50,7 +50,7 @@ my $jason_perl_object;
 
 foreach my $product (keys %price_product_map)
 {
-	$jason_perl_object = { "product_name" => $product, "listings" => $outputjason->encode($price_product_map{$product}) };
+	$jason_perl_object = { "product_name" => $product, "listings" => $price_product_map{$product} };
 	print O $outputjason->encode($jason_perl_object)."\n";
 }
 
@@ -102,7 +102,7 @@ sub process
                 }
 	
 	       push @{$price_product_map{$product_name}}, $pricesref->[$listing_index];
-	
+
                # 'last out' of loop - we found a match between this price list line and products file, no need to keep looking,
                # since we limit the number of matches a price list entry can have to 1 product only.
 
@@ -238,3 +238,7 @@ sub normalize
 
         return $line;
 }
+
+
+
+
