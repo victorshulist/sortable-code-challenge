@@ -50,12 +50,33 @@ my $jason_perl_object;
 
 foreach my $product (keys %price_product_map)
 {
-	$jason_perl_object = { "product_name" => $product, "listings" => $price_product_map{$product} };
-	print O $outputjason->encode($jason_perl_object)."\n";
+	my $outputjsonstring = '';
+
+	if(@{$price_product_map{$product}})
+	{
+		$outputjsonstring = '{"product_name":"'.esc_quote($product).'","listings":[';
+		
+		foreach my $pricelisting (@{$price_product_map{$product}})
+		{
+			$outputjsonstring .= '{"title":"'.esc_quote($pricelisting->{'title'}).'","manufacturer":"'.esc_quote($pricelisting->{'manufacturer'}).'","currency":"'.esc_quote($pricelisting->{'currency'}).'","price":"'.esc_quote($pricelisting->{'price'}).'"},';
+		}
+
+		chop($outputjsonstring);
+		$outputjsonstring .= ']}';
+	}
+	print O $outputjsonstring."\n";
 }
 
 close(O);
 exit(0);
+
+sub esc_quote
+{
+	my ($in ) = @_;
+	my $out = $in;
+	$out =~ s!"!\\\"!g;
+	return $out;
+}
 
 sub process
 {
@@ -69,11 +90,16 @@ sub process
         my $price_entry_manufacturer = $pricesref->[$listing_index]->{'manufacturer'};
         my $price_entry_title = $pricesref->[$listing_index]->{'title'};
 
+	# instead of dealing with spaces sometimes, dashes sometimes, and hypens, just confirm to spaces before compare...
+	# that's what the "normalized_" variables do.
+
+	my $normalized_price_entry_title = normalize($price_entry_title);
+
         # Given this price listing (current one given by $list_entry), let's attempt to locate this
         # in the product list
 	$found = 0;
-       
-	my $product_ref_obj = $productsref->{$price_entry_manufacturer};
+      
+	my $product_ref_obj = $productsref->{normalize($price_entry_manufacturer)};
     
 	foreach my $price_list_item_ref (@{$product_ref_obj})
 	{ 
@@ -85,8 +111,12 @@ sub process
 		my $product_model = $price_list_item_ref->[1];
 		my $product_family = $price_list_item_ref->[2];
 
+		my $normalized_product_model = normalize($product_model);
+		my $normalized_product_family = normalize($product_family);
+
 		# case-insensitive model match...
-                if($price_entry_title !~ m/(^|\s)$product_model($|\s)/i)
+
+                if($normalized_price_entry_title !~ m/(^|\s)$normalized_product_model($|\s)/i)
                 {
                 	# no, the current price list item's title does not contain the model mentioned
                 	# the currently looked at product
@@ -95,7 +125,7 @@ sub process
 
                 # compare - case insenstive - family
 
-                if($price_entry_title !~ m/(^|\s)$product_family($|\s)/i)
+                if($normalized_price_entry_title !~ m/(^|\s)$normalized_product_family($|\s)/i)
                 {
                 	# no, it doesn't, move on
                 	next;
@@ -107,7 +137,6 @@ sub process
                # since we limit the number of matches a price list entry can have to 1 product only.
 
                last;
-	
          } 
      }
 }
@@ -134,7 +163,6 @@ sub load_prices
 
     foreach $line (@lines)
     {  
-        $line = normalize($line);        
         next if($line =~ m/^\s*$/); # ignore compleletly blank lines
 
 	if($REMOVE_DUPS)
@@ -199,9 +227,9 @@ sub load_products
 
         push @{$product_specs{normalize($obj->{'manufacturer'})}},
                     [ 
-                        normalize($obj->{'product_name'}),
-                        normalize($obj->{'model'}),
-                        normalize($obj->{'family'})
+                        $obj->{'product_name'},
+                        $obj->{'model'},
+                        $obj->{'family'},
                     ];        	
     }
 
@@ -229,16 +257,17 @@ sub normalize
         # to make matching eaiser, let's go with only spaces -- convert all dashes, underscores to
         # spaces
 
+	# testing did confirm this function adds more matches.
+
         $line =~ tr/-/ /;
         $line =~ tr/_/ /;
 
         # let's trim useless leading and trailing spaces...
 
+	$line =~ s/\s{2,}/ /g;
         $line =~ s/^\s*(.+?)\s*$/$1/;
 
         return $line;
 }
-
-
 
 
